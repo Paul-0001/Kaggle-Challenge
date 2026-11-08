@@ -1,0 +1,27 @@
+# Local environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.env
+.env.*
+!.env.example
+# Competition datasets and generated outputs
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+submissions/*.csv
+results/*.csv
+results/*.json
+results/figures/*.png
+results/figures/*.pdf
+*.joblib
+*.pkl
+# OS
+.DS_Store
+Thumbs.db

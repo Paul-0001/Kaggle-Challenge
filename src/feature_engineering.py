@@ -30,7 +30,7 @@ def combine(a, b):
 
 # Function that processes the multistring category for genre for an artist in music_app.json
 def split_genres(x):
-    return set(str(x).lower().split("|")) if pd.notna(x) else set()
+    return {g.strip().lower() for g in str(x).split("|") if g.strip()} if pd.notna(x) else set()
 
 # Compute the haversine distance between coordinates (Pls. see mathematical explanation in doc Math.pdf)
 def haversine(lat1, lon1, lat2, lon2):
@@ -114,14 +114,18 @@ def _js_distance(a, b):
     return float(np.sqrt(max(0, (kl(a, m) + kl(b, m)) / 2)))
 
 # Transform all features of music_app.json into numerical values for further computation with features
-def _music_features(df, music_app_path):
+def _music_features(df, music_app_path, safe_cutoff=None, similarity_user_ids=None):
 
     # Open and load the doc music_app.json
     with open(music_app_path, encoding="utf-8") as f:
         music = json.load(f)
 
     # Cutoff all information we cannot use to avoid data leakage
-    cutoff= pd.Timestamp(music["history_ends_before"])
+    cutoff = pd.to_datetime(music["history_ends_before"], utc=True)
+
+    # Most conservative approach to avoid dataleakage and computing 5 times the same feature for each concert. But we lose data.
+    if safe_cutoff is not None:
+        cutoff = min(cutoff, pd.to_datetime(safe_cutoff, utc=True))
 
     # Get all genres
     genres = list(music["catalog"]["genres"])
@@ -151,7 +155,7 @@ def _music_features(df, music_app_path):
             for track in session.get("tracks", []):
 
                 # Get the timestamp of when the track was listened to
-                t = pd.Timestamp(track["played_at"])
+                t = pd.to_datetime(track["played_at"], utc=True)
 
                 # Stop if timestamp > prediction date
                 if t >= cutoff:
@@ -201,7 +205,14 @@ def _music_features(df, music_app_path):
     plays['last_30d'] = (plays['days_ago']<=30).astype(int)
 
     # Computes a matrix for the whole population with users as rows and genres as columns. Each elements represents how often a user listened to that genre.
-    population_counts = pd.crosstab(plays['music_app_user_id'],plays['genre'])
+    similarity_plays = plays
+
+    # Only use users from the training data to compute this matrix
+    if similarity_user_ids is not None:
+        similarity_plays = plays[plays["music_app_user_id"].isin(similarity_user_ids)]
+
+    # Computes the matrix
+    population_counts = pd.crosstab(similarity_plays["music_app_user_id"],similarity_plays["genre"])
 
     # Makes safe all genres are in matrix even if not one user listened to them
     population_counts = population_counts.reindex(columns=genres,fill_value=0)
@@ -211,7 +222,6 @@ def _music_features(df, music_app_path):
 
     # Normalize each row with the whole population data
     population_mat = population_mat / np.maximum(population_mat.sum(axis=1, keepdims=True), 1)
-
 
     # Aggregate only accounts present in this input frame 
     needed = set(df['music_app_user_id'].dropna())
@@ -361,7 +371,7 @@ def _music_features(df, music_app_path):
                 # Played minutes by an artist
                 'app_artist_listening_minutes':a['played_ms'].sum() / 60000,
 
-                # Fraction of played minutes by this artist in relation to all minutes listened to that artist
+                # Fraction of played songs by this artist in relation to all songs played by the user
                 'app_artist_play_share':n / total,
 
                 # Fraction of played minutes by this artist in relation to all minutes listened to by user
@@ -439,6 +449,10 @@ def _music_features(df, music_app_path):
 
     # Each iteration goes through user id, artist id, the users genre preferences and the genres and connects them
     for uid, artist,stated, genres_string in zip(df['music_app_user_id'], df['artist_id'], df['stated_favourite_genre'], df['genres']):
+
+        # normalize stated
+        if pd.notna(stated):
+            stated = str(stated).strip().lower()
 
         # Create a dictionnary for app feature name and set all to NaN for start (If user doesnt have app it stays NaN)
         base = {k:np.nan for k in APP_COLUMNS}
@@ -548,16 +562,17 @@ def _music_features(df, music_app_path):
     return pd.DataFrame(output,index=df.index), statuses
 
 # Function that builds the features and preserves the original feautures as well as order. Detail feature by featire analysis and expl. in 02_feature_engineerin.ipynb
-def build_features(data: pd.DataFrame, music_app_path: str | Path) -> pd.DataFrame:
+def build_features(data: pd.DataFrame,music_app_path: str | Path,safe_cutoff=None,similarity_user_ids=None) -> pd.DataFrame:
 
     # Copy the data in a dataframe called df
-    df=data.copy().reset_index(drop=True)
+    df= data.copy().reset_index(drop=True)
 
     # Convert all date values in datetime values python can read as a date
     for date_column in ['concert_at','sale_opened_at','prediction_at','travel_search_arrival']:
         df[date_column]=pd.to_datetime(df[date_column],utc=True,errors='coerce')
 
-    lookup,statuses=_music_features(df,music_app_path)
+    # 
+    lookup, statuses = _music_features(df,music_app_path,safe_cutoff=safe_cutoff,similarity_user_ids=similarity_user_ids)
 
     # app_activity_status: categorical status of linked music-app account.
     df['app_activity_status'] = df['music_app_user_id'].map(statuses).fillna('unlinked')
@@ -847,6 +862,9 @@ def build_features(data: pd.DataFrame, music_app_path: str | Path) -> pd.DataFra
     # ticket_price_rank_within_user: df.groupby("user_id")["ticket_price"].rank(method="average",ascending=True)
     df["ticket_price_rank_within_user"] = df.groupby("user_id")["ticket_price"].rank(method="average",ascending=True)
 
+    # Price tier within user's five offers: 1 = cheapest, 5 = most expensive
+    df["price_tier"] = (df.groupby("user_id")["ticket_price"].rank(method="first", ascending=True).astype("Int64"))
+
     # distance_km_rank_within_user: df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)
     df["distance_km_rank_within_user"] = df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)
 
@@ -996,10 +1014,10 @@ def build_features(data: pd.DataFrame, music_app_path: str | Path) -> pd.DataFra
 def check_feature_integrity(train_features, test_features):
 
     # Save all feature names in train columns (Buy ommited since not in test)
-    train_columns=set(train_features.columns) - {'buy'}
+    train_columns = set(train_features.columns) - {'buy'}
 
     # Get all column names from test dataset
-    test_columns=set(test_features.columns)
+    test_columns= set(test_features.columns)
 
     # Error if they are not the same. Raise AssertionError
     if train_columns != test_columns:
@@ -1009,5 +1027,4 @@ def check_feature_integrity(train_features, test_features):
     if train_features['row_id'].duplicated().any() or test_features['row_id'].duplicated().any():
         raise AssertionError('Duplicate row_id found')
 
-    
     return True

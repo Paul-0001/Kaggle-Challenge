@@ -36,7 +36,7 @@ def train_logistic(train, holdout):
         ("num", Pipeline([
 
             # Inputer fills all missing values with the columns median and really important we add an indicator that shows if the value was filled or not. See EDA why.
-            ("imputer", SimpleImputer(strategy="median", add_indicator=True)),
+            ("imputer", SimpleImputer(strategy="median", add_indicator=True, keep_empty_features=True)),
 
             # Scaler standardizes all the values as we saw in lecture (xi - mü) / std with mü=mean and std=std of the column
             ("scaler", StandardScaler())
@@ -48,10 +48,10 @@ def train_logistic(train, holdout):
         ("cat", Pipeline([
 
             # We fill each missing categroy values with the value "Missing"
-            ("imputer", SimpleImputer(strategy="constant", fill_value="Missing")),
+            ("imputer", SimpleImputer(strategy="constant", fill_value="Missing", keep_empty_features=True)),
 
             # Make each category a dummy variable that takes numerical values so the log reg model can use them. Ignore category that rent predefined and set 0.
-            ("encoder", OneHotEncoder(handle_unknown="ignore"))
+            ("encoder", OneHotEncoder(handle_unknown="infrequent_if_exist", min_frequency=20))
 
         # Add all columns this pipeline has to be applied to
         ]), categorical)
@@ -64,8 +64,7 @@ def train_logistic(train, holdout):
         ("preprocessing", preprocessor),
 
         # Apply logistic regressio with L1 regularization
-        ("model", LogisticRegression(penalty="l1", solver="liblinear", max_iter=3000))
-    ])
+        ("model", LogisticRegression(l1_ratio=1.0, solver="liblinear", max_iter=3000,random_state=42))])
 
     # Search for hyperparameters (As Lambda for L1 reg.) Train multiple models with different hyperparameters to find the best one
     search = GridSearchCV(

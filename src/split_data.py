@@ -7,6 +7,7 @@ Split our training data 80-20.
 # Import what needed
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
+from pathlib import Path
 
 # Function that splits our dataset and groups all observations belonging to one user together. Set seed for reproducability,
 def split_by_user(df, test_size=0.20, random_state=42):
@@ -46,3 +47,26 @@ def split_by_user(df, test_size=0.20, random_state=42):
 
     # Return both datasets
     return train, holdout
+
+# Function that manages everything
+if __name__ == "__main__":
+
+    # Set root of project
+    root = Path(__file__).resolve().parents[1]
+
+    # Set path for splitted datasets
+    path = root / "data" / "processed"
+
+    # Get the csv with the new features
+    df = pd.read_csv(path / "train_features.csv")
+
+    # Split it 80-20
+    train, holdout = split_by_user(df, test_size=0.20, random_state=42)
+
+    # Save both datasets (Training and out of sample)
+    train.to_csv(path / "train_split.csv", index=False)
+    holdout.to_csv(path / "holdout_split.csv", index=False)
+
+    # usercheck
+    print("Train and holdout datasets saved.")
+

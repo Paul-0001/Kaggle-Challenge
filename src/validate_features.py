@@ -28,9 +28,13 @@ def validate_features(train, holdout):
         if df["user_id"].isna().any():
             raise ValueError(f"{name}: missing user_id")
 
-        # Check that we dont have duplicate rows 
-        if "row_id" in df and df["row_id"].duplicated().any():
-            raise ValueError(f"{name}: duplicate row_id")
+        # Check that the column row id is not missing
+        if "row_id" not in df.columns:
+            raise ValueError(f"{name}: missing row_id")
+
+        # Check that the row id values are nonempty and there are no duplicates else raise valueerror
+        if df["row_id"].isna().any() or df["row_id"].duplicated().any():
+            raise ValueError(f"{name}: invalid row_id")
 
     # Check that no user is in both train and out of sampe dataset (Would be data leakage)
     if set(train["user_id"]) & set(holdout["user_id"]):

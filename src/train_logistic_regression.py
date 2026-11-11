@@ -21,6 +21,14 @@ def train_logistic(train, holdout):
     # Common feature validation with function we created before
     X_train, X_test, y_train, _, _ = validate_features(train, holdout)
 
+
+# Exclude population-learned genre similarities from grouped CV (For now)
+    global_similarity = ["app_genre_similarity_max","app_genre_similarity_mean","app_genre_similarity_weighted"]
+
+    X_train = X_train.drop(columns=global_similarity, errors="ignore")
+    X_test = X_test.drop(columns=global_similarity, errors="ignore")
+
+
     # add all numerical columns from the validated datasets to numeric
     numeric = X_train.select_dtypes(include=["number", "bool"]).columns.tolist()
 

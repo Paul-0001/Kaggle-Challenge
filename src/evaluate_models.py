@@ -10,7 +10,7 @@ import pandas as pd
 from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score,recall_score, f1_score, log_loss)
 
 # Create the function that does the evaluation. Input has to be a df with 3 columns: row_id, y_true and y_proba
-def evaluate_models(prediction_files, holdout_path, threshold=0.5):
+def evaluate_models(prediction_files, holdout_path, threshold=0.4):
 
     # Get the out of sample dataset to evaluate the models
     holdout = pd.read_csv(holdout_path)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     results = evaluate_models(files, root / "data/processed/holdout_split.csv")
 
 
-    print("\n=== MODEL COMPARISON ===")
+    print("\nModel Metrics")
     print(results.round(4).to_string(index=False))
 
     # 

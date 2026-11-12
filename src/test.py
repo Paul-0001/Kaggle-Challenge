@@ -1,20 +1,27 @@
-import sys
-import importlib.util
+
 from pathlib import Path
+import numpy as np
+import pandas as pd
+from sklearn.metrics import f1_score, precision_score, recall_score
 
-PROJECT_ROOT = Path.cwd().resolve()
+ROOT = Path(__file__).resolve().parents[1]
+df = pd.read_csv(ROOT / "models/logistic_predictions.csv")
 
-# Add src to Python's module search path
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+y_true = df["y_true"]
+y_proba = df["y_proba"]
 
-# Check whether Python can locate the module
-spec = importlib.util.find_spec("feature_engineering")
-print("Module found:", spec is not None)
+results = []
 
-if spec is not None:
-    print("Module location:", spec.origin)
+for threshold in np.arange(0.1, 0.901, 0.01):
+    y_pred = (y_proba >= threshold).astype(int)
 
-# Try importing the two functions
-from feature_engineering import build_features, check_feature_integrity
+    results.append({
+        "Threshold": round(threshold, 2),
+        "F1": f1_score(y_true, y_pred),
+        "Precision": precision_score(y_true, y_pred, zero_division=0),
+        "Recall": recall_score(y_true, y_pred, zero_division=0)
+    })
 
-print("Both functions imported successfully!")
+results = pd.DataFrame(results)
+
+print(results.sort_values("F1", ascending=False).to_string(index=False))

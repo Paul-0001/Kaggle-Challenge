@@ -863,7 +863,7 @@ def build_features(data: pd.DataFrame,music_app_path: str | Path,safe_cutoff=Non
     df["ticket_price_rank_within_user"] = df.groupby("user_id")["ticket_price"].rank(method="average",ascending=True)
 
     # Price tier within user's five offers: 1 = cheapest, 5 = most expensive
-    df["price_tier"] = (df.groupby("user_id")["ticket_price"].rank(method="first", ascending=True).astype("Int64"))
+    df["price_tier"] = (df.groupby("concert_id")["ticket_price"].rank(method="dense").astype("Int64"))
 
     # distance_km_rank_within_user: df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)
     df["distance_km_rank_within_user"] = df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)

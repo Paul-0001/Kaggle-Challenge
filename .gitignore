@@ -10,11 +10,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
-# Competition datasets and generated outputs
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
 submissions/*.csv
 results/*.csv
 results/*.json

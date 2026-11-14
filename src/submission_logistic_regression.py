@@ -27,9 +27,13 @@ if missing:
 
 X_test = test[list(features)].replace([float("inf"), -float("inf")], float("nan"))
 
-# Predict binary labels
+# Set threshold for labels. We found that in this case 0,4 is optimal.
 THRESHOLD = 0.4
+
+# Get the probabilities for the test dataset for each obs
 probabilities = model.predict_proba(X_test)[:, 1]
+
+# According to the probabilities and threshold set labels
 predictions = (probabilities >= THRESHOLD).astype(int)
 
 # Create Kaggle submission
@@ -44,5 +48,8 @@ assert submission["row_id"].is_unique
 assert set(submission["row_id"]) == set(raw["row_id"])
 assert submission["buy"].isin([0, 1]).all()
 
-submission.to_csv(ROOT / "submission.csv", index=False)
+# Save the submission
+submission.to_csv(ROOT / "submission_logistic_regression.csv", index=False)
+
+# Usercheck that everything went well
 print(f"Saved {len(submission)} predictions to submission.csv")

@@ -1,6 +1,6 @@
 '''
 Function that evaluates the model's output's in a standardized way so we can properly rank them. Uses criteria from ranking from pdf.
-Else we compare appls to pears.
+Else we compare apple to pears.
 '''
 
 # Import what needed
@@ -10,7 +10,11 @@ import pandas as pd
 from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score,recall_score, f1_score, log_loss)
 
 # Create the function that does the evaluation. Input has to be a df with 3 columns: row_id, y_true and y_proba
-def evaluate_models(prediction_files, holdout_path, threshold=0.4):
+def evaluate_models(prediction_files, holdout_path, thresholds=None):
+
+    # Get the thresholds for the model (F1-opt)
+    thresholds = thresholds or {}
+
 
     # Get the out of sample dataset to evaluate the models
     holdout = pd.read_csv(holdout_path)
@@ -64,8 +68,9 @@ def evaluate_models(prediction_files, holdout_path, threshold=0.4):
         # p takes the predictions of the model for the out of sample data
         p = df["y_proba"]
 
-        # if p > 0.5 which is our threshold then set label buy else 0
-        pred = (p >= threshold).astype(int)
+        # if p > 0.5 or whatever threshold set then set label buy else 0
+        model_threshold = thresholds.get(name, 0.5)
+        pred = (p >= model_threshold).astype(int)
 
         # Append all the important informations to the results dict for the model
         results.append({
@@ -106,17 +111,30 @@ if __name__ == "__main__":
 
     # Add the name for the result file for each model
     files = {
-        "Logistic Regression": models / "logistic_predictions.csv",
-        # "CatBoost": models / "catboost_predictions.csv",
-        # "LightGBM": models / "lightgbm_predictions.csv",
+        "Logistic Regression": models / "logistic_predictions.csv", # First one we made and submitted
+        "CatBoost": models / "catboost_predictions.csv", # Second
+        "LightGBM": models / "lightgbm_predictions.csv", # Third
     }
 
     # Evaluate the models and save as csv
-    results = evaluate_models(files, root / "data/processed/holdout_split.csv")
+    results = evaluate_models(
+        files,
+        root / "data/processed/holdout_split.csv",
 
+        # Dont set uniform thresholds since opt may be different for different models
+        thresholds={
 
+            # Was the optimum regarding maximizing our F1 score
+            "Logistic Regression": 0.4,
+
+            # Get the optimal threshold for evaluation that was calculated directly in train_catboost.py
+            "CatBoost": float((models / "catboost_threshold.txt").read_text())
+        }
+    )
+
+    # Print the model metrics (For all models we made until then to compare)
     print("\nModel Metrics")
     print(results.round(4).to_string(index=False))
 
-    # 
+    # Save comparison results in CSV
     results.to_csv(models / "model_comparison.csv", index=False)

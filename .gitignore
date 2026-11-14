@@ -22,3 +22,5 @@ results/figures/*.pdf
 Thumbs.db
 # Trained models and predictions
 /models/
+# Catboost training info
+catboost_info/

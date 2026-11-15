@@ -2,7 +2,7 @@
 This script does all the feature engineering for the features we chose to create.
 It takes data leakage into account. (No data is used that we have for after the prediction date)
 For further explanations pls. review 02_feature_engineering.ipynb under kaggle challenge -> notebooks
-For further mathematical explanations pls. review Math.pdf under kaggle challenge -> notebooks
+For further mathematical explanations pls. review Math.pdf 
 """
 
 # Import what needed

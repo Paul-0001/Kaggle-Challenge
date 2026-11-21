@@ -23,3 +23,4 @@ Thumbs.db
 /models/
 # Catboost training info
 /catboost_info/
+/data/

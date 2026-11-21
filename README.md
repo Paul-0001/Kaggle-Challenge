@@ -9,15 +9,10 @@ Predict binary `buy` for each user–concert opportunity using only information 
 - `data/raw/`: original Kaggle files (not tracked)
 - `data/processed/`: generated datasets (not tracked)
 - `notebooks/`: EDA and exploratory feature experiments
-- `src/data/`: loading, cleaning and feature engineering
-- `src/preprocessing/`: model-specific sklearn preprocessing pipelines
-- `src/models/`: classifiers and parameter grids
-- `src/evaluation/`: validation, scoring and comparisons
-- `scripts/`: reproducible command-line entry points
-- `results/`: scores, plots and tuning summaries
+- `src/` : Logistic Regression, CatBoost and LightGBM Training
+- `scripts/`: Scripts to evaluate the models, do the feature engineering, split the data, validate our feature engineering and find an optimal threshold
 - `submissions/`: Kaggle submission CSVs
-- `reports/`: final 3-page report
-- `tests/`: automated tests
+- `main/`: pdf for project explanations, mathematical proofs and official instructions
 
 ## Getting started (Windows PowerShell)
 ```powershell
@@ -33,11 +28,3 @@ Determine whether user-grouped folds are appropriate; use the official competiti
 
 ## Reproducibility
 Use a fixed random seed and record model parameters, CV results and library versions. Final submission should be reproducible from provided data and source code.
-
-## Team workflow
-Create feature branches, open pull requests, review before merging to `main`. Avoid committing Kaggle data, secrets, `.venv` or large generated artifacts.
-
-## Submission checklist
-- [ ] Kaggle team submission
-- [ ] 3-page PDF report with team members and Kaggle team name
-- [ ] ZIP of reproducible code sent as instructed in assignment

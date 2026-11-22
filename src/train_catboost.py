@@ -10,7 +10,7 @@ from catboost import CatBoostClassifier
 from sklearn.base import clone
 from sklearn.model_selection import GroupKFold, RandomizedSearchCV
 from sklearn.metrics import f1_score
-from validate_features import validate_features
+from scripts.validate_features import validate_features
 
 # Function that trains aour model
 def train_catboost(train, holdout):

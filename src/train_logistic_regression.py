@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold, GridSearchCV
-from validate_features import validate_features
+from scripts.validate_features import validate_features
 
 # Function that trains the logistic regression
 def train_logistic(train, holdout):

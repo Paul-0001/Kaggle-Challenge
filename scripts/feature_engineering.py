@@ -561,11 +561,124 @@ def _music_features(df, music_app_path, safe_cutoff=None, similarity_user_ids=No
     # Return the new df and the statuses
     return pd.DataFrame(output,index=df.index), statuses
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# EDA-driven features (explained step by step in notebooks/01_eda_constandino.ipynb and
+# notebooks/02_feature_engineering_constandino.ipynb, report sections 1.1-1.2, recency in section 2.4).
+# Each feature answers one finding of the EDA. They are computed from the raw columns only, so they do not
+# depend on the features above. Missing values are kept where the information does not exist
+# (no account, first-timer, no travel search); imputation is done in the training scripts.
+# AI disclosure: the features and their logic come from Constandino's notebooks; the code of this block was written
+# from those notebooks by an AI assistant and checked to give exactly the same values.
+# ---------------------------------------------------------------------------------------------------------------
+EDA_COLUMNS = ['music_app_status', 'visits_missing', 'searched_travel', 'price_vs_usual', 'lead_gap',
+               'distance_km_home_to_venue', 'travel_to_venue', 'travel_gap_days', 'travel_date_match',
+               'artist_saves', 'artist_searches', 'artist_days_since_last', 'artist_share',
+               'artist_recent_share', 'artist_plays_last_14d', 'artist_trend']
+
+def _eda_features(raw, music_app_path, safe_cutoff=None):
+
+    # New columns, same rows and order as the input
+    out = pd.DataFrame(index=raw.index)
+
+    # Read the music app accounts once
+    with open(music_app_path) as f:
+        accounts = json.load(f)["accounts"]
+
+    # music_app_status: "active", "empty" or "missing" account (from the JSON), or "no_account" when there is no id.
+    # Empty and missing accounts have 0 plays and buy like users without an account (about 50%), active users 31%,
+    # so the status says more than a yes/no "has an app id" flag.
+    status = {a["music_app_user_id"]: a["activity_status"] for a in accounts}
+    out["music_app_status"] = raw["music_app_user_id"].map(status).fillna("no_account")
+
+    # visits_missing: the event-page visit count was not recorded (missing behaves like 0 visits: 30.8% vs 29.2% buy)
+    out["visits_missing"] = raw["event_page_visits_7d"].isna().astype(int)
+
+    # searched_travel: the user searched any travel (38.3% buy vs 32.1% without a search)
+    out["searched_travel"] = raw["travel_search_city"].notna().astype(int)
+
+    # price_vs_usual: ticket price / what the user usually pays (above 1 = pricier than usual; empty for first-timers)
+    out["price_vs_usual"] = raw["ticket_price"] / raw["typical_ticket_spend"]
+
+    # lead_gap: days until the concert minus the user's usual booking lead (positive = further away than they usually book)
+    days_to_concert = (pd.to_datetime(raw["concert_at"]) - pd.to_datetime(raw["prediction_at"])).dt.days
+    out["lead_gap"] = days_to_concert - raw["usual_booking_lead_days"]
+
+    # distance_km_home_to_venue: geodesic distance home -> venue on the WGS-84 ellipsoid (geopy)
+    from geopy.distance import geodesic
+    out["distance_km_home_to_venue"] = [geodesic((hlat, hlon), (vlat, vlon)).km
+                                        for hlat, hlon, vlat, vlon in zip(raw["home_lat"], raw["home_lon"], raw["venue_lat"], raw["venue_lon"])]
+
+    # travel_to_venue: searched travel to THIS concert's city
+    out["travel_to_venue"] = (raw["travel_search_city"] == raw["venue_city"]).astype(int)
+
+    # travel_gap_days: arrival date minus concert date (dates only, every concert starts at 20:00), only for the concert's city
+    gap = (pd.to_datetime(raw["travel_search_arrival"]) - pd.to_datetime(raw["concert_at"].str[:10])).dt.days
+    out["travel_gap_days"] = gap.where(out["travel_to_venue"] == 1)
+
+    # travel_date_match: concert's city AND arrival within 1 day of the concert (73% buy vs 30%)
+    out["travel_date_match"] = ((out["travel_to_venue"] == 1) & gap.between(-1, 1)).astype(int)
+
+    # One row per song played (plays after the safe cutoff are removed, no leakage)
+    plays = pd.json_normalize(accounts, record_path=["sessions", "tracks"], meta=["music_app_user_id"])
+    if safe_cutoff is not None:
+        plays = plays[pd.to_datetime(plays["played_at"], utc=True) < pd.to_datetime(safe_cutoff, utc=True)]
+    plays["searched"] = plays["source"] == "search"
+    plays["days_ago"] = (pd.Timestamp("2026-10-01", tz="UTC") - pd.to_datetime(plays["played_at"])).dt.days
+    plays["recent_ms"] = plays["played_ms"] * 0.5 ** (plays["days_ago"] / 14)     # a play from 14 days ago counts half, 28 days a quarter
+    plays["last_14d"] = plays["days_ago"] < 14
+    plays["last_30d"] = plays["days_ago"] < 30
+
+    # Per user and artist
+    per_artist = plays.groupby(["music_app_user_id", "artist_id"]).agg(
+        artist_ms=("played_ms", "sum"),                 # listening time on this artist
+        artist_saves=("saved", "sum"),                  # songs of the artist saved (real fans)
+        artist_searches=("searched", "sum"),            # songs of the artist searched on purpose (not autoplay)
+        artist_days_since_last=("days_ago", "min"),     # days since the artist was last played
+        recent_ms=("recent_ms", "sum"),
+        artist_plays_last_14d=("last_14d", "sum"),      # plays of the artist in the last 14 days
+        plays_last_30d=("last_30d", "sum"),
+        plays_total=("last_30d", "size")).reset_index()
+
+    # artist_share: share of the user's listening time that goes to the artist
+    per_artist["artist_share"] = per_artist["artist_ms"] / per_artist.groupby("music_app_user_id")["artist_ms"].transform("sum")
+
+    # artist_recent_share: same share, but recent plays count more (half-life 14 days)
+    per_artist["artist_recent_share"] = per_artist["recent_ms"] / per_artist.groupby("music_app_user_id")["recent_ms"].transform("sum")
+
+    # artist_trend: plays per day in the last 30 days vs per day before (above 1 = listening more lately)
+    per_artist["artist_trend"] = (per_artist["plays_last_30d"] / 30) / ((per_artist["plays_total"] - per_artist["plays_last_30d"]).clip(lower=1) / 60)
+
+    # Put them on every row (user x concert)
+    music_cols = ["artist_saves", "artist_searches", "artist_days_since_last", "artist_share",
+                  "artist_recent_share", "artist_plays_last_14d", "artist_trend"]
+    merged = raw[["music_app_user_id", "artist_id"]].merge(per_artist[["music_app_user_id", "artist_id"] + music_cols],
+                                                          on=["music_app_user_id", "artist_id"], how="left")
+    merged.index = raw.index
+
+    # 0 for active users who never played the artist (7% buy); empty for users without listening data.
+    # artist_days_since_last stays empty in both cases: there is no "last play".
+    active = out["music_app_status"] == "active"
+    cols = ["artist_share", "artist_saves", "artist_searches"]
+    merged.loc[active, cols] = merged.loc[active, cols].fillna(0)
+    has_plays = raw["music_app_user_id"].isin(plays["music_app_user_id"])
+    cols = ["artist_recent_share", "artist_plays_last_14d", "artist_trend"]
+    merged.loc[has_plays, cols] = merged.loc[has_plays, cols].fillna(0)
+
+    for c in ["artist_saves", "artist_searches", "artist_days_since_last", "artist_share"]:
+        out[c] = merged[c]
+    for c in ["artist_recent_share", "artist_plays_last_14d", "artist_trend"]:
+        out[c] = merged[c]
+    return out[EDA_COLUMNS]
+
 # Function that builds the features and preserves the original feautures as well as order. Detail feature by featire analysis and expl. in 02_feature_engineerin.ipynb
 def build_features(data: pd.DataFrame,music_app_path: str | Path,safe_cutoff=None,similarity_user_ids=None) -> pd.DataFrame:
 
     # Copy the data in a dataframe called df
     df= data.copy().reset_index(drop=True)
+
+    # EDA-driven features, computed on the raw columns before any conversion (added at the end, see _eda_features)
+    eda = _eda_features(df, music_app_path, safe_cutoff=safe_cutoff)
 
     # Convert all date values in datetime values python can read as a date
     for date_column in ['concert_at','sale_opened_at','prediction_at','travel_search_arrival']:
@@ -862,8 +975,8 @@ def build_features(data: pd.DataFrame,music_app_path: str | Path,safe_cutoff=Non
     # ticket_price_rank_within_user: df.groupby("user_id")["ticket_price"].rank(method="average",ascending=True)
     df["ticket_price_rank_within_user"] = df.groupby("user_id")["ticket_price"].rank(method="average",ascending=True)
 
-    # Price tier within user's five offers: 1 = cheapest, 5 = most expensive
-    df["price_tier"] = (df.groupyby("concert_id")["ticket_price"].rank(method="dense"))
+    # price_tier: 1 = cheapest, 2 = normal, 3 = most expensive ticket WITHIN each concert (each concert has exactly 3 prices)
+    df["price_tier"] = df.groupby("concert_id")["ticket_price"].rank(method="dense").astype(int)
 
     # distance_km_rank_within_user: df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)
     df["distance_km_rank_within_user"] = df.groupby("user_id")["distance_km"].rank(method="average",ascending=True)
@@ -1008,6 +1121,8 @@ def build_features(data: pd.DataFrame,music_app_path: str | Path,safe_cutoff=Non
 
     # wishlisted_x_total_price_to_typical_ticket_spend_ratio: df["wishlisted"] * df["total_price_to_typical_ticket_spend_ratio"]
     df["wishlisted_x_total_price_to_typical_ticket_spend_ratio"] = df["wishlisted"] * df["total_price_to_typical_ticket_spend_ratio"]
+    # Add the EDA-driven features at the end
+    df = pd.concat([df, eda], axis=1)
     return df
 
 # Function that checks that all our features are complete and valid
@@ -1028,3 +1143,33 @@ def check_feature_integrity(train_features, test_features):
         raise AssertionError('Duplicate row_id found')
 
     return True
+
+
+# Build the feature files for train and test: python scripts/feature_engineering.py (from the project root)
+if __name__ == "__main__":
+    from split_data import split_by_user
+
+    # Project root (one level above scripts/)
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    raw = PROJECT_ROOT / "data" / "raw"
+    out = PROJECT_ROOT / "data" / "processed"
+
+    # Read train and test
+    train = pd.read_csv(raw / "train.csv")
+    test = pd.read_csv(raw / "test.csv")
+
+    # Only the training users (grouped 80/20 split, seed 42) are used to learn genre similarity
+    train_part, holdout_part = split_by_user(train, test_size=0.20, random_state=42)
+    similarity_user_ids = set(train_part["music_app_user_id"].dropna())
+
+    # Global safe cutoff across train and test (no data after the prediction date)
+    safe_cutoff = min(pd.to_datetime(train["prediction_at"], utc=True).min(), pd.to_datetime(test["prediction_at"], utc=True).min())
+
+    # Build, check and save
+    train_features = build_features(train, raw / "music_app.json", safe_cutoff=safe_cutoff, similarity_user_ids=similarity_user_ids)
+    test_features = build_features(test, raw / "music_app.json", safe_cutoff=safe_cutoff, similarity_user_ids=similarity_user_ids)
+    check_feature_integrity(train_features, test_features)
+    out.mkdir(parents=True, exist_ok=True)
+    train_features.to_csv(out / "train_features.csv", index=False)
+    test_features.to_csv(out / "test_features.csv", index=False)
+    print("Train:", train_features.shape, "| Test:", test_features.shape, "| saved to", out)

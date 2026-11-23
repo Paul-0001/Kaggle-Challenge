@@ -128,7 +128,10 @@ if __name__ == "__main__":
             "Logistic Regression": 0.4,
 
             # Get the optimal threshold for evaluation that was calculated directly in train_catboost.py
-            "CatBoost": float((models / "catboost_threshold.txt").read_text())
+            "CatBoost": float((models / "catboost_threshold.txt").read_text()),
+
+            # Cut-off chosen by cross-validation in src/train_lightGBM.py
+            "LightGBM": float((models / "lightgbm_threshold.txt").read_text())
         }
     )
 

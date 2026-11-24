@@ -8,3 +8,4 @@ pytest
 joblib
 geopy
 lightgbm
+catboost

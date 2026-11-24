@@ -96,6 +96,26 @@ def train_logistic(train, holdout):
     # Find best model with best hyperparameters (Best Pipeline)
     model = search.best_estimator_
 
+    # ADDED FOR THE REPORT (dino): the course asks for the cross-validated F1 of every model (Section 2),
+    # but this script only scores the best C on AUC and the holdout F1 comes from find_optimal_threshold_logistic_regression.py.
+    # This block computes the out-of-fold F1 at the best cut-off, the same way as at the end of train_catboost.py,
+    # so the CV F1 of logistic regression, CatBoost and LightGBM in the report are comparable.
+    # Import the tools to get out-of-fold predictions and to compute the F1 score
+    from sklearn.model_selection import cross_val_predict
+    from sklearn.metrics import f1_score
+
+    # Out-of-fold probabilities: the best pipeline is trained 5 times, each time predicting the users it did not see
+    # (GroupKFold keeps all rows of a user in the same fold, so no data leakage)
+    oof = cross_val_predict(model, X_train, y_train, groups=train["user_id"], cv=GroupKFold(n_splits=5), method="predict_proba")[:, 1]
+
+    # Try every cut-off between 0.20 and 0.80 and compute the F1 score for each
+    thresholds = np.arange(0.20, 0.81, 0.01)
+    scores = [f1_score(y_train, oof >= t) for t in thresholds]
+
+    # Usercheck: best cut-off and the cross-validated F1 at that cut-off (this is the CV F1 reported for logistic regression)
+    print(f"Best threshold: {thresholds[np.argmax(scores)]:.2f}")
+    print(f"OOF F1 (optimized threshold): {max(scores):.4f}")
+
     # Get the probabilities for each row for the out of sample dataset
     probabilities = model.predict_proba(X_test)[:, 1]
 

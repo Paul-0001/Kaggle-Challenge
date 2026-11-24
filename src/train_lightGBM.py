@@ -41,10 +41,13 @@ data = pd.read_csv(ROOT / "data/processed/train_features.csv", low_memory=False)
 test = pd.read_csv(ROOT / "data/processed/test_features.csv", low_memory=False)
 
 # same fills as my notebook 02 (the common file keeps the gaps)
-for df in [data, test]:
+def fill_gaps(df):
     df["stated_favourite_genre"] = df["stated_favourite_genre"].fillna("unknown")
     df["event_page_visits_7d"] = df["event_page_visits_7d"].fillna(0)
     df["genre_match"] = df["genre_match"].fillna(0)
+
+for df in [data, test]:
+    fill_gaps(df)
 
 # hold out 20% of the users: the model never sees them until the final check
 dev_idx, hold_idx = next(StratifiedGroupKFold(5, shuffle=True, random_state=42).split(data, data["buy"], data["user_id"]))
@@ -134,3 +137,19 @@ model = clone(clf).fit(X_all, data["buy"])
 pred  = (model.predict_proba(X_test)[:, 1] >= cut_final).astype(int)
 pd.DataFrame({"row_id": test["row_id"], "buy": pred}).to_csv(ROOT / "submissions/submission_lightGBM.csv", index=False)
 print(len(pred), "rows |", X_all.shape[1], "features | predicted buy rate:", round(pred.mean(), 3))
+
+# 6. predictions on Paul's holdout, so scripts/evaluate_models.py can compare the 3 models
+#    (only when python scripts/split_data.py was run first)
+split = ROOT / "data/processed"
+if (split / "holdout_split.csv").exists():
+    tr = pd.read_csv(split / "train_split.csv", low_memory=False)
+    ho = pd.read_csv(split / "holdout_split.csv", low_memory=False)
+    for df in [tr, ho]:
+        fill_gaps(df)
+    X_tr = tr[X_final.columns].astype({c: "category" for c in text_cols})
+    X_ho = ho[X_tr.columns].astype({c: X_tr[c].dtype for c in text_cols})
+    p_ho = clone(clf).fit(X_tr, tr["buy"]).predict_proba(X_ho)[:, 1]
+    (ROOT / "models").mkdir(exist_ok=True)
+    pd.DataFrame({"row_id": ho["row_id"], "y_true": ho["buy"], "y_proba": p_ho}).to_csv(ROOT / "models/lightgbm_predictions.csv", index=False)
+    (ROOT / "models/lightgbm_threshold.txt").write_text(str(round(cut_final, 2)))
+    print("saved models/lightgbm_predictions.csv for scripts/evaluate_models.py")
